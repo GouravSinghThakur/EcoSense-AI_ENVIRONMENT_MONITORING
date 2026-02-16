@@ -16,6 +16,8 @@ __pycache__/
 *.env
 .dll
 .pyd
+.env.template
+.yaml
 
 # Ignore OS & IDE stuff
 .DS_Store
