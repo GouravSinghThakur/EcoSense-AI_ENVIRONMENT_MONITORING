@@ -1,6 +1,4 @@
 # Ignore Python environments
-config/
-myenv/
 venv/
 env/
 myenv/

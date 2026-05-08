@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import yaml
 from dotenv import load_dotenv
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
 from modules.data_fetcher import fetch_current_weather, fetch_air_quality, fetch_weather_forecast, get_location_by_name
@@ -28,8 +28,8 @@ from modules.utils import (
 )
 
 # Load environment variables and configuration
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', '.env'))
-config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'config.yaml')
+load_dotenv(os.path.join(os.path.dirname(__file__), 'config', '.env'))
+config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.yaml')
 
 with open(config_path, 'r') as file:
     config = yaml.safe_load(file)
