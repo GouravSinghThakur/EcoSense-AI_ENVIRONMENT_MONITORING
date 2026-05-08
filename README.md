@@ -1,14 +1,3 @@
----
-title: AI ENVIRONMENT MONITORING
-emoji: 🌍
-colorFrom: yellow
-colorTo: pink
-sdk: streamlit
-sdk_version: 1.44.1
-app_file: app.py
-pinned: false
-license: mit
----
 
 <p align="center">
   <img src="https://img.icons8.com/color/96/earth-planet.png" width="100"/>
