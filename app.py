@@ -18,40 +18,7 @@ sys.path.insert(0, _BASE)
 with open(os.path.join(_BASE, "config", "config.yaml")) as _f:
     config = yaml.safe_load(_f)
 
-<<<<<<< Updated upstream
-from modules.data_fetcher import fetch_current_weather, fetch_air_quality, fetch_weather_forecast, get_location_by_name
-from modules.data_processor import process_weather_data, process_air_quality_data, process_forecast_data
-from modules.prediction_engine import PredictionEngine
-from modules.alert_system import AlertSystem
-from modules.utils import (
-    load_sample_data, 
-    create_time_series_plot, 
-    create_correlation_heatmap,
-    format_weather_icon_url,
-    celsius_to_fahrenheit,
-    get_aqi_description
-)
 
-# Load environment variables and configuration
-load_dotenv()
-config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.yaml')
-
-with open(config_path, 'r') as file:
-    config = yaml.safe_load(file)
-
-# Check if API key is available
-API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
-if not API_KEY:
-    st.error("OpenWeatherMap API key not found. Please add it to the .env file.")
-    st.stop()
-
-# Initialize prediction engine and alert system
-prediction_engine = PredictionEngine()
-alert_system = AlertSystem()
-
-# Set page configuration
-=======
->>>>>>> Stashed changes
 st.set_page_config(
     page_title="EcoSense AI · Live Dashboard",
     page_icon="🌍", layout="wide",
@@ -363,13 +330,7 @@ with tabs[2]:
                               yaxis_title=f"Temperature ({temp_unit})", hovermode="x unified", height=400)
             st.plotly_chart(fig, use_container_width=True)
 
-<<<<<<< Updated upstream
-# Footer
-st.markdown("---")
-st.markdown("### AI Environment Monitoring System")
-st.markdown("Developed for environmental monitoring and prediction using AI techniques.")
-st.markdown("© 2025 AI Environment Monitoring System")
-=======
+
             pc1, pc2, pc3, pc4 = st.columns(4)
             pc1.metric("Current",       f"{to_disp(weather_data['temperature'])}{temp_unit}")
             pc2.metric("Predicted High (24h)", f"{to_disp(temp_pred_df['predicted'][:24].max())}{temp_unit}")
