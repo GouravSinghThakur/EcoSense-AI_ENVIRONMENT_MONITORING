@@ -11,13 +11,9 @@ from datetime import datetime, timedelta
 import streamlit as st
 from dotenv import load_dotenv
 
-<<<<<<< Updated upstream
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-=======
 _BASE = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(_BASE, "config", ".env"))
 sys.path.insert(0, _BASE)
->>>>>>> Stashed changes
 
 with open(os.path.join(_BASE, "config", "config.yaml")) as _f:
     config = yaml.safe_load(_f)
