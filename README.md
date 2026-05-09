@@ -1,3 +1,13 @@
+---
+title: EcoSense AI Environment Monitoring
+emoji: 🌍
+colorFrom: blue
+colorTo: green
+sdk: streamlit
+sdk_version: "1.32.0"
+app_file: app.py
+pinned: false
+---
 <p align="center">
   <img src="https://img.icons8.com/color/96/earth-planet.png" width="90"/>
 </p>
