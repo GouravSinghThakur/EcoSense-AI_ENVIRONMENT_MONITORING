@@ -23,3 +23,5 @@ __pycache__/
 *.log
 *.sqlite3
 *.vscode/
+
+data/*_hist_*.csv

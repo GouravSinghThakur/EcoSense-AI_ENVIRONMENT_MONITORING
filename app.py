@@ -1,19 +1,28 @@
-import os
-import sys
-import streamlit as st
-import pandas as pd
+"""
+app.py — EcoSense AI · Real-Time Environmental Dashboard v3
+"""
+import os, sys, logging, yaml, time
 import numpy as np
-import matplotlib.pyplot as plt
-import plotly.express as px
+import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
-import yaml
+import streamlit as st
 from dotenv import load_dotenv
 
+<<<<<<< Updated upstream
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+=======
+_BASE = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_BASE, "config", ".env"))
+sys.path.insert(0, _BASE)
+>>>>>>> Stashed changes
 
+with open(os.path.join(_BASE, "config", "config.yaml")) as _f:
+    config = yaml.safe_load(_f)
 
+<<<<<<< Updated upstream
 from modules.data_fetcher import fetch_current_weather, fetch_air_quality, fetch_weather_forecast, get_location_by_name
 from modules.data_processor import process_weather_data, process_air_quality_data, process_forecast_data
 from modules.prediction_engine import PredictionEngine
@@ -45,1107 +54,485 @@ prediction_engine = PredictionEngine()
 alert_system = AlertSystem()
 
 # Set page configuration
+=======
+>>>>>>> Stashed changes
 st.set_page_config(
-    page_title="AI Environment Monitoring System",
-    page_icon="🌍",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="EcoSense AI · Live Dashboard",
+    page_icon="🌍", layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# Add custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1E88E5;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-    .sub-header {
-        font-size: 1.5rem;
-        color: #0D47A1;
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-    }
-    .alert-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-    }
-    .alert-warning {
-        background-color: #FFF3E0;
-        border-left: 5px solid #FF9800;
-    }
-    .alert-danger {
-        background-color: #FFEBEE;
-        border-left: 5px solid #F44336;
-    }
-    .metric-card {
-        background-color: #F5F5F5;
-        border-radius: 0.5rem;
-        padding: 1rem;
-        text-align: center;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    .metric-value {
-        font-size: 2rem;
-        font-weight: bold;
-        margin: 0.5rem 0;
-    }
-    .metric-label {
-        font-size: 1rem;
-        color: #616161;
-    }
-</style>
-""", unsafe_allow_html=True)
+# ── Imports ───────────────────────────────────────────────────────────────────
+from modules.ui_styles     import DARK_CSS, PLOTLY_THEME
+from modules.ui_components import metric_card, alert_box, risk_gauge, section_header
+from modules.data_fetcher  import (fetch_current_weather, fetch_air_quality,
+                                   fetch_weather_forecast, get_location_by_name)
+from modules.data_processor import (process_weather_data, process_air_quality_data,
+                                    process_forecast_data)
+from modules.data_store    import (init_store, append_weather, append_air_quality,
+                                   append_alerts, weather_df, aq_df, mark_fetch,
+                                   seconds_since_fetch)
+from modules.realtime_engine    import (compute_risk_scores, predict_temperature,
+                                         generate_dynamic_alerts)
+from modules.historical_fetcher import load_both as load_history
+from modules.ml_trainer         import train_models, predict_with_model
+from modules.utils              import load_sample_data, celsius_to_fahrenheit, get_aqi_description
 
-# App title
-st.markdown("<h1 class='main-header'>AI Environment Monitoring System</h1>", unsafe_allow_html=True)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+st.markdown(DARK_CSS, unsafe_allow_html=True)
 
-# Sidebar
-st.sidebar.title("Settings")
+# ── Auto-refresh ──────────────────────────────────────────────────────────────
+try:
+    from streamlit_autorefresh import st_autorefresh
+    AUTOREFRESH_OK = True
+except ImportError:
+    AUTOREFRESH_OK = False
 
-# Location input
-location_method = st.sidebar.radio("Select location by:", ["City Name", "Coordinates"])
+API_KEY = os.getenv("OPENWEATHERMAP_API_KEY", "")
 
-if location_method == "City Name":
-    city_name = st.sidebar.text_input("City Name", value=config['ui']['default_location']['city'])
-    if st.sidebar.button("Get Location"):
-        with st.spinner("Fetching location..."):
-            location = get_location_by_name(city_name)
-            if location:
-                lat, lon = location
-                st.sidebar.success(f"Location found: {city_name} ({lat:.4f}, {lon:.4f})")
+# ── Session init ──────────────────────────────────────────────────────────────
+init_store()
+if "lat" not in st.session_state:
+    st.session_state.lat  = config["ui"]["default_location"]["lat"]
+    st.session_state.lon  = config["ui"]["default_location"]["lon"]
+    st.session_state.city = config["ui"]["default_location"]["city"]
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## 🌍 EcoSense AI")
+    st.markdown("<small style='color:#475569'>Real-Time Environmental Dashboard v3</small>",
+                unsafe_allow_html=True)
+    st.divider()
+
+    loc_method = st.radio("📍 Location", ["City Name", "Coordinates"], horizontal=True)
+    if loc_method == "City Name":
+        city_in = st.text_input("City", value=st.session_state.city)
+        if st.button("🔍 Search", use_container_width=True):
+            res = get_location_by_name(city_in)
+            if res:
+                st.session_state.lat, st.session_state.lon = res
+                st.session_state.city = city_in
+                st.cache_data.clear()
+                st.success(f"📌 {city_in}")
             else:
-                st.sidebar.error(f"Location not found for: {city_name}")
-                lat, lon = config['ui']['default_location']['lat'], config['ui']['default_location']['lon']
+                st.error("City not found.")
     else:
-        # Use default location
-        lat, lon = config['ui']['default_location']['lat'], config['ui']['default_location']['lon']
+        st.session_state.lat = st.number_input("Latitude",  value=st.session_state.lat,  format="%.4f")
+        st.session_state.lon = st.number_input("Longitude", value=st.session_state.lon, format="%.4f")
+
+    st.divider()
+    units        = st.selectbox("🌡 Units", ["Celsius (°C)", "Fahrenheit (°F)"])
+    forecast_hrs = st.slider("⏱ Forecast horizon (hrs)", 12, 120, 48, 12)
+    demo_mode    = st.checkbox("🧪 Demo mode", value=not bool(API_KEY))
+
+    refresh_mins = st.select_slider("🔄 Auto-refresh", [1, 2, 5, 10, 15, 30], value=5)
+    if AUTOREFRESH_OK:
+        count = st_autorefresh(interval=refresh_mins * 60 * 1000, key="autorefresh")
+    else:
+        if st.button("🔄 Refresh Now", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+    st.divider()
+    ver = config.get("app", {}).get("version", "3.0")
+    st.markdown(f"<small style='color:#475569'>v{ver}</small>", unsafe_allow_html=True)
+
+lat, lon   = st.session_state.lat, st.session_state.lon
+use_f      = "Fahrenheit" in units
+temp_unit  = "°F" if use_f else "°C"
+to_disp    = lambda c: round(celsius_to_fahrenheit(c) if use_f else c, 1)
+
+# ── Hero ──────────────────────────────────────────────────────────────────────
+st.markdown("<div class='hero-header'>🌍 EcoSense AI — Live Environmental Intelligence</div>",
+            unsafe_allow_html=True)
+
+elapsed = seconds_since_fetch()
+fetch_n = st.session_state.get("fetch_count", 0)
+next_in = max(0, refresh_mins * 60 - (elapsed or 0))
+c1, c2, c3 = st.columns(3)
+c1.markdown(f"<p style='text-align:center;color:#64748b'>📍 {st.session_state.city} · {lat:.3f}°, {lon:.3f}°</p>", unsafe_allow_html=True)
+c2.markdown(f"<p style='text-align:center;color:#64748b'>🕐 {datetime.now().strftime('%H:%M:%S, %d %b %Y')}</p>", unsafe_allow_html=True)
+c3.markdown(f"<p style='text-align:center;color:#64748b'>🔁 Fetch #{fetch_n} · Next refresh in {int(next_in)}s</p>", unsafe_allow_html=True)
+
+if not API_KEY and not demo_mode:
+    st.warning("⚠️ No API key — enable Demo Mode or add OPENWEATHERMAP_API_KEY to config/.env")
+
+# ── Live data fetch ───────────────────────────────────────────────────────────
+@st.cache_data(ttl=refresh_mins * 60, show_spinner=False)
+def live_weather(lat, lon): return process_weather_data(fetch_current_weather(lat, lon))
+
+@st.cache_data(ttl=refresh_mins * 60, show_spinner=False)
+def live_aq(lat, lon):      return process_air_quality_data(fetch_air_quality(lat, lon))
+
+@st.cache_data(ttl=refresh_mins * 60, show_spinner=False)
+def live_forecast(lat, lon):return process_forecast_data(fetch_weather_forecast(lat, lon))
+
+if demo_mode:
+    sample_w  = load_sample_data("weather")
+    sample_aq = load_sample_data("air_quality")
+    weather_data     = sample_w.iloc[-1].to_dict()
+    air_quality_data = sample_aq.iloc[-1].to_dict()
+    weather_data.setdefault("weather_description", "Clear sky")
+    weather_data.setdefault("rain_1h", float(np.random.exponential(0.3)))
+    weather_data["temperature"] += float(np.random.normal(0, 0.5))   # slight variation
+    air_quality_data["aqi"]     = int(max(1, air_quality_data.get("aqi", 60) + np.random.randint(-5, 6)))
+    forecast_df = sample_w
 else:
-    lat = st.sidebar.number_input("Latitude", value=config['ui']['default_location']['lat'], format="%.4f")
-    lon = st.sidebar.number_input("Longitude", value=config['ui']['default_location']['lon'], format="%.4f")
+    with st.spinner("📡 Fetching live data…"):
+        weather_data     = live_weather(lat, lon)
+        air_quality_data = live_aq(lat, lon)
+        forecast_df      = live_forecast(lat, lon)
 
-# Units selection
-units = st.sidebar.selectbox("Temperature Units", ["Celsius", "Fahrenheit"], index=0)
+# Accumulate history
+if weather_data:
+    append_weather(weather_data)
+    mark_fetch()
+if air_quality_data:
+    append_air_quality(air_quality_data)
 
-# Forecast horizon
-forecast_hours = st.sidebar.slider("Forecast Horizon (hours)", min_value=12, max_value=120, value=48, step=12)
+w_hist = weather_df()
+aq_hist = aq_df()
 
-# Data refresh button
-if st.sidebar.button("Refresh Data"):
-    st.rerun()
+# ── 90-day historical data + model training (once per session) ────────────────
+@st.cache_resource(show_spinner=False)
+def get_historical_and_models(_lat, _lon, _api_key):
+    """Fetch 90-day history and train ML models. Cached for the whole session."""
+    wx_h, aq_h = load_history(_lat, _lon, _api_key, days=90)
+    models = train_models(wx_h, aq_h)
+    return wx_h, aq_h, models
 
-# Demo mode toggle
-demo_mode = st.sidebar.checkbox("Demo Mode (Use Sample Data)", value=False)
+with st.spinner("📚 Loading 90-day history & training AI models (first run only)…"):
+    wx_hist_90, aq_hist_90, ml_models = get_historical_and_models(lat, lon, API_KEY)
 
-# Main content
-# Create tabs for different sections
-tabs = st.tabs(["Current Conditions", "Forecast", "Predictions & Alerts", "Data Analysis"])
+# Merge live session readings into the 90-day history for latest context
+def _drop_dict_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove columns that contain dict values (unhashable, breaks dedup)."""
+    bad = [c for c in df.columns if df[c].apply(lambda x: isinstance(x, dict)).any()]
+    return df.drop(columns=bad, errors="ignore")
 
-# Current Conditions Tab
-with tabs[0]:
-    st.markdown("<h2 class='sub-header'>Current Weather and Air Quality</h2>", unsafe_allow_html=True)
-    
-    # Fetch and process data
-    if demo_mode:
-        # Use sample data in demo mode
-        weather_data = load_sample_data('weather').iloc[-1].to_dict()
-        air_quality_data = load_sample_data('air_quality').iloc[-1].to_dict()
-    else:
-        # Fetch real-time data
-        with st.spinner("Fetching current weather data..."):
-            raw_weather = fetch_current_weather(lat, lon)
-            weather_data = process_weather_data(raw_weather)
-        
-        with st.spinner("Fetching air quality data..."):
-            raw_air_quality = fetch_air_quality(lat, lon)
-            air_quality_data = process_air_quality_data(raw_air_quality)
-    
-    if weather_data and air_quality_data:
-        # Display current conditions in a grid layout
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-            if 'weather_icon' in weather_data:
-                st.image(format_weather_icon_url(weather_data['weather_icon']), width=100)
-            
-            temp_value = weather_data['temperature']
-            if units == "Fahrenheit":
-                temp_value = celsius_to_fahrenheit(temp_value)
-                temp_unit = "°F"
-            else:
-                temp_unit = "°C"
-            
-            st.markdown(f"<div class='metric-value'>{temp_value:.1f}{temp_unit}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-label'>{weather_data['weather_description'].title()}</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-            st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-label'>Humidity</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-value'>{weather_data['humidity']}%</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-label'>Wind Speed</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-value'>{weather_data['wind_speed']} m/s</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-label'>Direction: {weather_data['wind_direction']}°</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-            st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-label'>Pressure</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-value'>{weather_data['pressure']} hPa</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        with col3:
-            aqi_desc, aqi_color = get_aqi_description(air_quality_data['aqi'])
-            
-            st.markdown(f"<div class='metric-card' style='border-left: 5px solid {aqi_color};'>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-label'>Air Quality Index</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-value'>{air_quality_data['aqi']}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-label'>{aqi_desc}</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-            st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-label'>Precipitation (1h)</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='metric-value'>{weather_data.get('rain_1h', 0):.1f} mm</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Additional details in expandable section
-        with st.expander("Additional Details"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("Weather Details")
-                details_df = pd.DataFrame({
-                    'Metric': ['Feels Like', 'Min Temperature', 'Max Temperature', 'Clouds', 'Sunrise', 'Sunset'],
-                    'Value': [
-                        f"{weather_data['feels_like']:.1f}°C",
-                        f"{weather_data['temp_min']:.1f}°C",
-                        f"{weather_data['temp_max']:.1f}°C",
-                        f"{weather_data['clouds']}%",
-                        weather_data['sunrise'],
-                        weather_data['sunset']
-                    ]
-                })
-                st.table(details_df)
-            
-            with col2:
-                st.subheader("Air Quality Details")
-                air_details_df = pd.DataFrame({
-                    'Pollutant': ['CO', 'NO2', 'O3', 'SO2', 'PM2.5', 'PM10'],
-                    'Value (μg/m³)': [
-                        f"{air_quality_data['co']:.1f}",
-                        f"{air_quality_data['no2']:.1f}",
-                        f"{air_quality_data['o3']:.1f}",
-                        f"{air_quality_data['so2']:.1f}",
-                        f"{air_quality_data['pm2_5']:.1f}",
-                        f"{air_quality_data['pm10']:.1f}"
-                    ]
-                })
-                st.table(air_details_df)
-    else:
-        st.error("Failed to fetch current conditions. Please check your API key and try again.")
+if w_hist is not None and wx_hist_90 is not None:
+    wx_hist_90 = pd.concat([wx_hist_90, _drop_dict_cols(w_hist)]).sort_index()
+    wx_hist_90 = wx_hist_90[~wx_hist_90.index.duplicated(keep="last")]
+if aq_hist is not None and aq_hist_90 is not None:
+    aq_hist_90 = pd.concat([aq_hist_90, _drop_dict_cols(aq_hist)]).sort_index()
+    aq_hist_90 = aq_hist_90[~aq_hist_90.index.duplicated(keep="last")]
 
-# Forecast Tab
-with tabs[1]:
-    st.markdown("<h2 class='sub-header'>Weather Forecast</h2>", unsafe_allow_html=True)
-    
-    # Fetch and process forecast data
-    if demo_mode:
-        # Use sample data in demo mode
-        forecast_df = load_sample_data('weather')
-    else:
-        # Fetch real-time forecast data
-        with st.spinner("Fetching forecast data..."):
-            raw_forecast = fetch_weather_forecast(lat, lon)
-            forecast_df = process_forecast_data(raw_forecast)
-    
-    if forecast_df is not None and not forecast_df.empty:
-        # Temperature forecast chart
-        st.subheader("Temperature Forecast")
-        
-        # Convert temperature if needed
-        if units == "Fahrenheit":
-            temp_col = 'temperature_f'
-            forecast_df[temp_col] = forecast_df['temperature'].apply(celsius_to_fahrenheit)
-            temp_unit = "°F"
-        else:
-            temp_col = 'temperature'
-            temp_unit = "°C"
-        
-        # Create temperature chart with Plotly
-        fig = px.line(
-            forecast_df, 
-            x=forecast_df.index, 
-            y=temp_col,
-            labels={'x': 'Date', 'y': f'Temperature ({temp_unit})'},
-            title=f'Temperature Forecast for the Next {len(forecast_df)} Hours'
-        )
-        
-        # Add feels like temperature
-        if units == "Fahrenheit":
-            forecast_df['feels_like_f'] = forecast_df['feels_like'].apply(celsius_to_fahrenheit)
-            feels_like_col = 'feels_like_f'
-        else:
-            feels_like_col = 'feels_like'
-        
-        fig.add_scatter(
-            x=forecast_df.index, 
-            y=forecast_df[feels_like_col], 
-            mode='lines', 
-            name=f'Feels Like ({temp_unit})'
-        )
-        
-        # Update layout
-        fig.update_layout(
-            xaxis_title='Date',
-            yaxis_title=f'Temperature ({temp_unit})',
-            legend_title='Metric',
-            hovermode='x unified'
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Precipitation forecast
-        st.subheader("Precipitation Forecast")
-        
-        # Create precipitation chart with Plotly
-        fig = px.bar(
-            forecast_df, 
-            x=forecast_df.index, 
-            y='rain_3h',
-            labels={'x': 'Date', 'y': 'Precipitation (mm)'},
-            title='Precipitation Forecast for the Next 5 Days'
-        )
-        
-        # Add probability of precipitation
-        fig.add_scatter(
-            x=forecast_df.index, 
-            y=forecast_df['probability'], 
-            mode='lines', 
-            name='Probability (%)',
-            yaxis='y2'
-        )
-        
-        # Update layout with secondary y-axis
-        fig.update_layout(
-            xaxis_title='Date',
-            yaxis_title='Precipitation (mm)',
-            yaxis2=dict(
-                title='Probability (%)',
-                overlaying='y',
-                side='right',
-                range=[0, 100]
-            ),
-            legend_title='Metric',
-            hovermode='x unified'
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Weather conditions forecast
-        st.subheader("Weather Conditions Forecast")
-        
-        # Create a table with weather conditions
-        forecast_table = forecast_df[['weather_main', 'weather_description', 'humidity', 'wind_speed']].copy()
-        forecast_table.index = forecast_table.index.strftime('%Y-%m-%d %H:%M')
-        forecast_table.columns = ['Weather', 'Description', 'Humidity (%)', 'Wind Speed (m/s)']
-        
-        st.dataframe(forecast_table, use_container_width=True)
-    else:
-        st.error("Failed to fetch forecast data. Please check your API key and try again.")
-
-# Predictions & Alerts Tab
-with tabs[2]:
-    st.markdown("<h2 class='sub-header'>AI Predictions and Alerts</h2>", unsafe_allow_html=True)
-    
-    # Get historical data for predictions
-    if demo_mode:
-        # Use sample data in demo mode
-        historical_weather = load_sample_data('weather')
-        historical_air_quality = load_sample_data('air_quality')
-        flood_data = load_sample_data('flood')
-    else:
-        # In real mode, we would need to fetch historical data
-        # For now, use sample data as a placeholder
-        historical_weather = load_sample_data('weather')
-        historical_air_quality = load_sample_data('air_quality')
-        flood_data = load_sample_data('flood')
-    
-    # Temperature prediction
-    st.subheader("Temperature Prediction")
-    
-    # Make temperature predictions
-    with st.spinner("Generating temperature predictions..."):
-        # In a real scenario, we would use the prediction_engine
-        # For demo, we'll create a simple forecast
-        
-        last_date = historical_weather.index[-1]
-        future_dates = pd.date_range(start=last_date + timedelta(hours=1), periods=forecast_hours, freq='H')
-        
-        # Create a simple prediction (in a real app, use the prediction engine)
-        # This is a placeholder that mimics the prediction engine's output
-        base_temp = historical_weather['temperature'].iloc[-1]
-        hour_of_day = np.array([d.hour for d in future_dates])
-        
-        # Temperature follows a sinusoidal pattern throughout the day
-        hourly_pattern = np.sin(2 * np.pi * (hour_of_day / 24)) * 3
-        
-        # Add some daily variation and random noise
-        predicted_temps = base_temp + hourly_pattern + np.random.normal(0, 1, len(future_dates))
-        
-        # Create DataFrame for predictions
-        temp_predictions = pd.DataFrame({
-            'predicted_temperature': predicted_temps
-        }, index=future_dates)
-    
-    # Display temperature predictions
-    if units == "Fahrenheit":
-        temp_predictions['predicted_temperature_f'] = temp_predictions['predicted_temperature'].apply(celsius_to_fahrenheit)
-        temp_col = 'predicted_temperature_f'
-        temp_unit = "°F"
-    else:
-        temp_col = 'predicted_temperature'
-        temp_unit = "°C"
-    
-    # Create temperature prediction chart with Plotly
-    fig = go.Figure()
-    
-    # Add historical data
-    if units == "Fahrenheit":
-        historical_temp = historical_weather['temperature'].apply(celsius_to_fahrenheit)
-    else:
-        historical_temp = historical_weather['temperature']
-    
-    fig.add_trace(go.Scatter(
-        x=historical_weather.index,
-        y=historical_temp,
-        mode='lines',
-        name='Historical',
-        line=dict(color='blue')
-    ))
-    
-    # Add prediction
-    fig.add_trace(go.Scatter(
-        x=temp_predictions.index,
-        y=temp_predictions[temp_col],
-        mode='lines',
-        name='Prediction',
-        line=dict(color='red', dash='dash')
-    ))
-    
-    # Add confidence interval (simulated)
-    upper_bound = temp_predictions[temp_col] + 2
-    lower_bound = temp_predictions[temp_col] - 2
-    
-    fig.add_trace(go.Scatter(
-        x=temp_predictions.index,
-        y=upper_bound,
-        mode='lines',
-        name='Upper Bound',
-        line=dict(width=0),
-        showlegend=False
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=temp_predictions.index,
-        y=lower_bound,
-        mode='lines',
-        name='Lower Bound',
-        line=dict(width=0),
-        fill='tonexty',
-        fillcolor='rgba(255, 0, 0, 0.1)',
-        showlegend=False
-    ))
-    
-    # Update layout
-    fig.update_layout(
-        title=f'Temperature Prediction for the Next {forecast_hours} Hours',
-        xaxis_title='Date',
-        yaxis_title=f'Temperature ({temp_unit})',
-        hovermode='x unified',
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        )
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Disaster risk prediction
-    st.subheader("Environmental Risk Assessment")
-    
-    # In a real scenario, we would use the prediction_engine
-    # For demo, we'll create a simple risk assessment
-    
-    # Generate some sample risk data
-    risk_data = {
-        'flood': 0.7 if np.mean(flood_data['flood_risk'].iloc[-24:]) > 0.5 else 0.3,
-        'storm': 0.6 if np.mean(historical_weather['wind_speed'].iloc[-24:]) > 8 else 0.2,
-        'heatwave': 0.8 if np.mean(historical_weather['temperature'].iloc[-24:]) > 30 else 0.1,
-        'air_pollution': 0.75 if np.mean(historical_air_quality['aqi'].iloc[-24:]) > 100 else 0.25
+# ── Helper functions ─────────────────────────────────────────────────────────
+def _risk_driver(risk_name: str, w: dict, aq: dict) -> str:
+    drivers = {
+        "Flood":        f"Rain {w.get('rain_1h',0):.1f}mm, Humidity {w.get('humidity',0):.0f}%, P {w.get('pressure',0):.0f}hPa",
+        "Storm":        f"Wind {w.get('wind_speed',0):.1f}m/s, P {w.get('pressure',0):.0f}hPa",
+        "Heatwave":     f"Temp {w.get('temperature',0):.1f}°C, Humidity {w.get('humidity',0):.0f}%",
+        "Air Pollution":f"AQI {aq.get('aqi',0)}, PM2.5 {aq.get('pm2_5',0):.1f}μg/m³",
     }
-    
-    # Determine highest risk
-    highest_risk = max(risk_data.items(), key=lambda x: x[1])
-    risk_data['highest_risk'] = highest_risk[0]
-    risk_data['highest_probability'] = highest_risk[1]
-    risk_data['risk_level'] = 'High' if highest_risk[1] >= 0.5 else 'Low'
-    
-    # Display risk assessment
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        # Create risk gauge chart
-        fig = go.Figure()
-        
-        for risk_type, probability in risk_data.items():
-            if risk_type not in ['highest_risk', 'highest_probability', 'risk_level']:
-                fig.add_trace(go.Indicator(
-                    mode="gauge+number",
-                    value=probability * 100,
-                    domain={'x': [0, 1], 'y': [0, 1]},
-                    title={'text': risk_type.capitalize()},
-                    gauge={
-                        'axis': {'range': [0, 100]},
-                        'bar': {'color': "darkblue"},
-                        'steps': [
-                            {'range': [0, 30], 'color': "green"},
-                            {'range': [30, 70], 'color': "yellow"},
-                            {'range': [70, 100], 'color': "red"}
-                        ],
-                        'threshold': {
-                            'line': {'color': "red", 'width': 4},
-                            'thickness': 0.75,
-                            'value': 70
-                        }
-                    }
-                ))
-        
-        # Create subplots for multiple gauges
-        fig = make_subplots(
-            rows=2, 
-            cols=2,
-            specs=[[{'type': 'indicator'}, {'type': 'indicator'}],
-                   [{'type': 'indicator'}, {'type': 'indicator'}]],
-            subplot_titles=("Flood Risk", "Storm Risk", "Heatwave Risk", "Air Pollution Risk")
-        )
-        
-        # Add gauges to subplots
-        fig.add_trace(
-            go.Indicator(
-                mode="gauge+number",
-                value=risk_data['flood'] * 100,
-                domain={'x': [0, 1], 'y': [0, 1]},
-                gauge={
-                    'axis': {'range': [0, 100]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [0, 30], 'color': "green"},
-                        {'range': [30, 70], 'color': "yellow"},
-                        {'range': [70, 100], 'color': "red"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 70
-                    }
-                }
-            ),
-            row=1, col=1
-        )
-        
-        fig.add_trace(
-            go.Indicator(
-                mode="gauge+number",
-                value=risk_data['storm'] * 100,
-                domain={'x': [0, 1], 'y': [0, 1]},
-                gauge={
-                    'axis': {'range': [0, 100]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [0, 30], 'color': "green"},
-                        {'range': [30, 70], 'color': "yellow"},
-                        {'range': [70, 100], 'color': "red"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 70
-                    }
-                }
-            ),
-            row=1, col=2
-        )
-        
-        fig.add_trace(
-            go.Indicator(
-                mode="gauge+number",
-                value=risk_data['heatwave'] * 100,
-                domain={'x': [0, 1], 'y': [0, 1]},
-                gauge={
-                    'axis': {'range': [0, 100]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [0, 30], 'color': "green"},
-                        {'range': [30, 70], 'color': "yellow"},
-                        {'range': [70, 100], 'color': "red"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 70
-                    }
-                }
-            ),
-            row=2, col=1
-        )
-        
-        fig.add_trace(
-            go.Indicator(
-                mode="gauge+number",
-                value=risk_data['air_pollution'] * 100,
-                domain={'x': [0, 1], 'y': [0, 1]},
-                gauge={
-                    'axis': {'range': [0, 100]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [0, 30], 'color': "green"},
-                        {'range': [30, 70], 'color': "yellow"},
-                        {'range': [70, 100], 'color': "red"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 70
-                    }
-                }
-            ),
-            row=2, col=2
-        )
-        
-        # Update layout
-        fig.update_layout(
-            height=500,
-            margin=dict(l=50, r=50, t=50, b=50)
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        # Display risk summary
-        st.markdown(f"### Risk Summary")
-        st.markdown(f"**Highest Risk:** {risk_data['highest_risk'].capitalize()}")
-        st.markdown(f"**Risk Level:** {risk_data['risk_level']}")
-        st.markdown(f"**Probability:** {risk_data['highest_probability'] * 100:.1f}%")
-        
-        # Generate alerts based on risks and current conditions
-        alerts = alert_system.generate_alerts(
-            weather_data=weather_data,
-            air_quality_data=air_quality_data,
-            risk_data=risk_data
-        )
-        
-        # Display alerts
-        st.markdown("### Active Alerts")
-        
-        if alerts:
-            for alert in alerts:
-                alert_class = "alert-warning" if alert['level'] == 'warning' else "alert-danger"
-                st.markdown(f"""
-                <div class='alert-box {alert_class}'>
-                    <strong>{alert['type'].upper()}:</strong> {alert['message']}
-                    <br><small>{alert['timestamp']}</small>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("No active alerts at this time.")
+    return drivers.get(risk_name, "—")
 
-# Data Analysis Tab
-with tabs[3]:
-    st.markdown("<h2 class='sub-header'>Data Analysis</h2>", unsafe_allow_html=True)
-    
-    # Get historical data
-    if demo_mode:
-        # Use sample data in demo mode
-        historical_weather = load_sample_data('weather')
-        historical_air_quality = load_sample_data('air_quality')
+
+# ── Compute AI predictions ─────────────────────────────────────────────────────
+risk_scores    = {}
+dynamic_alerts = []
+ml_predictions = {}
+temp_pred_df   = None
+aqi_pred_df    = None
+
+if weather_data and air_quality_data:
+    risk_scores    = compute_risk_scores(weather_data, air_quality_data, wx_hist_90)
+    dynamic_alerts = generate_dynamic_alerts(weather_data, air_quality_data, risk_scores)
+    # Use ML models trained on 90-day data
+    ml_predictions = predict_with_model(ml_models, wx_hist_90, aq_hist_90, forecast_hrs)
+    temp_pred_df   = ml_predictions.get("temperature")
+    aqi_pred_df    = ml_predictions.get("aqi")
+    append_alerts(dynamic_alerts)
+
+# ── LIVE ALERT BANNER (top of page) ──────────────────────────────────────────
+danger_alerts = [a for a in dynamic_alerts if a["level"] == "danger"]
+if danger_alerts:
+    st.error(f"🚨 **{len(danger_alerts)} ACTIVE DANGER ALERT(S)** — {danger_alerts[0]['type']}: {danger_alerts[0]['msg']}")
+elif [a for a in dynamic_alerts if a["level"] == "warning"]:
+    warn_list = [a for a in dynamic_alerts if a["level"] == "warning"]
+    st.warning(f"⚠️ **{len(warn_list)} Warning(s)** — {warn_list[0]['type']}: {warn_list[0]['msg']}")
+else:
+    st.success("✅ All environmental parameters within safe limits.")
+
+# ════════════════════════════════════════════════════════════════════════════════
+tabs = st.tabs(["📡 Live Conditions", "🔮 Forecast", "🤖 AI Predictions & Alerts", "📊 Analysis"])
+
+# ── TAB 0: Live Conditions ────────────────────────────────────────────────────
+with tabs[0]:
+    section_header("Current Weather & Air Quality")
+    if weather_data and air_quality_data:
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        with mc1:
+            metric_card("Temperature",  f"{to_disp(weather_data['temperature'])}{temp_unit}", "🌡")
+            metric_card("Feels Like",   f"{to_disp(weather_data.get('feels_like', weather_data['temperature']))}{temp_unit}", "🤔")
+        with mc2:
+            metric_card("Humidity",     f"{weather_data['humidity']}%",        "💧")
+            metric_card("Pressure",     f"{weather_data['pressure']} hPa",     "📊")
+        with mc3:
+            metric_card("Wind Speed",   f"{weather_data['wind_speed']} m/s",   "💨",
+                        f"Dir {weather_data.get('wind_direction',0)}°")
+            metric_card("Rain (1h)",    f"{weather_data.get('rain_1h',0):.1f} mm", "🌧")
+        with mc4:
+            aqi = air_quality_data.get("aqi", 0)
+            desc, _ = get_aqi_description(aqi)
+            metric_card("AQI",          str(aqi),                              "🌫", desc)
+            metric_card("PM2.5",        f"{air_quality_data.get('pm2_5',0):.1f} μg/m³", "🔬")
+
+        with st.expander("🔬 Full Pollutant Readings"):
+            col_w, col_a = st.columns(2)
+            with col_w:
+                st.table(pd.DataFrame({
+                    "Metric": ["Condition", "Min Temp", "Max Temp", "Clouds", "Sunrise", "Sunset"],
+                    "Value":  [
+                        weather_data.get("weather_description","—").title(),
+                        f"{to_disp(weather_data.get('temp_min', weather_data['temperature']))}{temp_unit}",
+                        f"{to_disp(weather_data.get('temp_max', weather_data['temperature']))}{temp_unit}",
+                        f"{weather_data.get('clouds',0)}%",
+                        weather_data.get("sunrise","—"), weather_data.get("sunset","—"),
+                    ],
+                }))
+            with col_a:
+                st.table(pd.DataFrame({
+                    "Pollutant": ["CO (mg/m³)","NO₂","O₃","SO₂","PM2.5","PM10","NH₃"],
+                    "Value":     [f"{air_quality_data.get(k,0):.2f}" for k in
+                                  ["co","no2","o3","so2","pm2_5","pm10","nh3"]],
+                }))
     else:
-        # In real mode, we would need to fetch historical data
-        # For now, use sample data as a placeholder
-        historical_weather = load_sample_data('weather')
-        historical_air_quality = load_sample_data('air_quality')
-    
-    # Time range selection
-    st.subheader("Select Time Range")
-    
-    # Get min and max dates from data
-    min_date = historical_weather.index.min().date()
-    max_date = historical_weather.index.max().date()
-    
-    # Date range picker
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date = st.date_input("Start Date", min_date)
-    with col2:
-        end_date = st.date_input("End Date", max_date)
-    
-    # Filter data based on selected date range
-    mask = (historical_weather.index.date >= start_date) & (historical_weather.index.date <= end_date)
-    filtered_weather = historical_weather[mask]
-    
-    mask = (historical_air_quality.index.date >= start_date) & (historical_air_quality.index.date <= end_date)
-    filtered_air_quality = historical_air_quality[mask]
-    
-    # Data visualization options
-    st.subheader("Data Visualization")
-    
-    # Select visualization type
-    viz_type = st.selectbox(
-        "Select Visualization Type",
-        ["Time Series", "Correlation Analysis", "Daily Patterns", "Statistical Summary"]
-    )
-    
-    if viz_type == "Time Series":
-        # Select data to visualize
-        data_type = st.selectbox("Select Data Type", ["Weather", "Air Quality"])
-        
-        if data_type == "Weather":
-            # Select weather variables
-            weather_vars = st.multiselect(
-                "Select Weather Variables",
-                options=filtered_weather.columns.tolist(),
-                default=['temperature', 'humidity', 'pressure']
-            )
-            
-            if weather_vars:
-                # Create time series plot
-                fig = px.line(
-                    filtered_weather, 
-                    x=filtered_weather.index, 
-                    y=weather_vars,
-                    labels={'x': 'Date', 'value': 'Value'},
-                    title=f'Weather Variables Time Series ({start_date} to {end_date})'
-                )
-                
-                # Update layout
-                fig.update_layout(
-                    xaxis_title='Date',
-                    yaxis_title='Value',
-                    legend_title='Variable',
-                    hovermode='x unified'
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Please select at least one weather variable.")
-        
-        elif data_type == "Air Quality":
-            # Select air quality variables
-            air_vars = st.multiselect(
-                "Select Air Quality Variables",
-                options=filtered_air_quality.columns.tolist(),
-                default=['aqi', 'pm2_5', 'o3']
-            )
-            
-            if air_vars:
-                # Create time series plot
-                fig = px.line(
-                    filtered_air_quality, 
-                    x=filtered_air_quality.index, 
-                    y=air_vars,
-                    labels={'x': 'Date', 'value': 'Value'},
-                    title=f'Air Quality Variables Time Series ({start_date} to {end_date})'
-                )
-                
-                # Update layout
-                fig.update_layout(
-                    xaxis_title='Date',
-                    yaxis_title='Value',
-                    legend_title='Variable',
-                    hovermode='x unified'
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Please select at least one air quality variable.")
-    
-    elif viz_type == "Correlation Analysis":
-        # Select data for correlation analysis
-        data_type = st.selectbox("Select Data Type for Correlation", ["Weather", "Air Quality", "Combined"])
-        
-        if data_type == "Weather":
-            # Create correlation heatmap for weather data
-            corr_matrix = filtered_weather.select_dtypes(include=[np.number]).corr()
-            
-            fig = px.imshow(
-                corr_matrix,
-                text_auto=True,
-                aspect="auto",
-                color_continuous_scale='RdBu_r',
-                title=f'Weather Variables Correlation Matrix'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Scatter plot for selected variables
-            st.subheader("Scatter Plot")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                x_var = st.selectbox("X Variable", filtered_weather.select_dtypes(include=[np.number]).columns.tolist())
-            with col2:
-                y_var = st.selectbox("Y Variable", filtered_weather.select_dtypes(include=[np.number]).columns.tolist(), index=1)
-            
-            fig = px.scatter(
-                filtered_weather,
-                x=x_var,
-                y=y_var,
-                trendline="ols",
-                title=f'Scatter Plot: {x_var} vs {y_var}'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        elif data_type == "Air Quality":
-            # Create correlation heatmap for air quality data
-            corr_matrix = filtered_air_quality.select_dtypes(include=[np.number]).corr()
-            
-            fig = px.imshow(
-                corr_matrix,
-                text_auto=True,
-                aspect="auto",
-                color_continuous_scale='RdBu_r',
-                title=f'Air Quality Variables Correlation Matrix'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Scatter plot for selected variables
-            st.subheader("Scatter Plot")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                x_var = st.selectbox("X Variable", filtered_air_quality.select_dtypes(include=[np.number]).columns.tolist())
-            with col2:
-                y_var = st.selectbox("Y Variable", filtered_air_quality.select_dtypes(include=[np.number]).columns.tolist(), index=1)
-            
-            fig = px.scatter(
-                filtered_air_quality,
-                x=x_var,
-                y=y_var,
-                trendline="ols",
-                title=f'Scatter Plot: {x_var} vs {y_var}'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        elif data_type == "Combined":
-            # Combine weather and air quality data
-            # First, resample both datasets to hourly frequency to ensure alignment
-            weather_hourly = filtered_weather.resample('H').mean()
-            air_quality_hourly = filtered_air_quality.resample('H').mean()
-            
-            # Merge the datasets
-            combined_data = pd.merge(
-                weather_hourly,
-                air_quality_hourly,
-                left_index=True,
-                right_index=True,
-                how='inner',
-                suffixes=('_weather', '_air')
-            )
-            
-            if not combined_data.empty:
-                # Create correlation heatmap for combined data
-                corr_matrix = combined_data.select_dtypes(include=[np.number]).corr()
-                
-                # Select top correlations for readability
-                top_corr = pd.DataFrame()
-                for col in corr_matrix.columns:
-                    # Get top 5 correlations for each column
-                    top_corr_col = corr_matrix[col].sort_values(ascending=False).head(5)
-                    top_corr = pd.concat([top_corr, top_corr_col])
-                
-                # Remove duplicates
-                top_corr = top_corr.drop_duplicates()
-                
-                # Create a more focused correlation matrix
-                st.subheader("Top Weather-Air Quality Correlations")
-                
-                # Display top correlations as a table
-                st.dataframe(top_corr, use_container_width=True)
-                
-                # Scatter plot for selected variables
-                st.subheader("Cross-Domain Scatter Plot")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    x_var = st.selectbox("Weather Variable", filtered_weather.select_dtypes(include=[np.number]).columns.tolist())
-                with col2:
-                    y_var = st.selectbox("Air Quality Variable", filtered_air_quality.select_dtypes(include=[np.number]).columns.tolist())
-                
-                # Create a temporary dataframe for the scatter plot
-                scatter_df = pd.DataFrame({
-                    'weather_var': weather_hourly[x_var],
-                    'air_var': air_quality_hourly[y_var]
-                })
-                
-                # Remove NaN values
-                scatter_df = scatter_df.dropna()
-                
-                if not scatter_df.empty:
-                    fig = px.scatter(
-                        scatter_df,
-                        x='weather_var',
-                        y='air_var',
-                        trendline="ols",
-                        labels={'weather_var': x_var, 'air_var': y_var},
-                        title=f'Scatter Plot: {x_var} vs {y_var}'
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("Not enough overlapping data points for the selected variables.")
-            else:
-                st.warning("No overlapping data between weather and air quality datasets for the selected time range.")
-    
-    elif viz_type == "Daily Patterns":
-        # Select data type
-        data_type = st.selectbox("Select Data Type for Daily Patterns", ["Weather", "Air Quality"])
-        
-        if data_type == "Weather":
-            # Select weather variable
-            weather_var = st.selectbox(
-                "Select Weather Variable",
-                options=filtered_weather.select_dtypes(include=[np.number]).columns.tolist(),
-                index=0
-            )
-            
-            # Extract hour from datetime index
-            filtered_weather['hour'] = filtered_weather.index.hour
-            
-            # Group by hour and calculate statistics
-            hourly_stats = filtered_weather.groupby('hour')[weather_var].agg(['mean', 'min', 'max', 'std'])
-            
-            # Create hourly pattern plot
+        st.error("❌ Could not fetch live data.")
+
+# ── TAB 1: Forecast ───────────────────────────────────────────────────────────
+with tabs[1]:
+    section_header("5-Day Weather Forecast")
+    if forecast_df is not None and not forecast_df.empty:
+        tc = "temperature"
+        y_fc = forecast_df[tc].apply(celsius_to_fahrenheit) if use_f else forecast_df[tc]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=forecast_df.index, y=y_fc, name=f"Temp ({temp_unit})",
+                                 line=dict(color="#00d4ff", width=2.5),
+                                 fill="tozeroy", fillcolor="rgba(0,212,255,0.07)"))
+        if "feels_like" in forecast_df.columns:
+            fl = forecast_df["feels_like"].apply(celsius_to_fahrenheit) if use_f else forecast_df["feels_like"]
+            fig.add_trace(go.Scatter(x=forecast_df.index, y=fl, name="Feels Like",
+                                     line=dict(color="#7c3aed", dash="dash")))
+        fig.update_layout(**PLOTLY_THEME, title="Temperature Forecast",
+                          yaxis_title=f"Temperature ({temp_unit})", hovermode="x unified", height=360)
+        st.plotly_chart(fig, use_container_width=True)
+
+        if "rain_3h" in forecast_df.columns:
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(x=forecast_df.index, y=forecast_df["rain_3h"],
+                                  name="Rain (mm)", marker_color="rgba(0,212,255,0.55)"))
+            if "probability" in forecast_df.columns:
+                fig2.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df["probability"],
+                                          name="Probability %", line=dict(color="#f59e0b"), yaxis="y2"))
+                fig2.update_layout(yaxis2=dict(title="Prob %", overlaying="y", side="right", range=[0,100]))
+            fig2.update_layout(**PLOTLY_THEME, title="Precipitation", height=280, hovermode="x unified")
+            st.plotly_chart(fig2, use_container_width=True)
+
+        cols_ = [c for c in ["weather_main","humidity","wind_speed","probability"] if c in forecast_df.columns]
+        tbl   = forecast_df[cols_].copy()
+        tbl.index = tbl.index.strftime("%d %b %H:%M")
+        st.dataframe(tbl, use_container_width=True)
+    else:
+        st.error("Forecast data unavailable.")
+
+# ── TAB 2: AI Predictions & Alerts ───────────────────────────────────────────
+with tabs[2]:
+    section_header("AI Predictions & Real-Time Alerts")
+
+    if weather_data and air_quality_data:
+
+        # Temperature AI prediction
+        temp_src = ml_predictions.get("temp_source", "Fallback")
+        st.markdown(f"#### 🤖 AI Temperature Forecast  — *{temp_src}*")
+        if temp_pred_df is not None:
             fig = go.Figure()
-            
-            # Add mean line
-            fig.add_trace(go.Scatter(
-                x=hourly_stats.index,
-                y=hourly_stats['mean'],
-                mode='lines+markers',
-                name='Mean',
-                line=dict(color='blue', width=2)
-            ))
-            
-            # Add min and max range
-            fig.add_trace(go.Scatter(
-                x=hourly_stats.index,
-                y=hourly_stats['max'],
-                mode='lines',
-                name='Max',
-                line=dict(color='red', width=1, dash='dash')
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=hourly_stats.index,
-                y=hourly_stats['min'],
-                mode='lines',
-                name='Min',
-                line=dict(color='green', width=1, dash='dash'),
-                fill='tonexty',
-                fillcolor='rgba(0, 0, 255, 0.1)'
-            ))
-            
-            # Update layout
-            fig.update_layout(
-                title=f'Daily Pattern of {weather_var}',
-                xaxis_title='Hour of Day',
-                yaxis_title=weather_var,
-                xaxis=dict(
-                    tickmode='array',
-                    tickvals=list(range(24)),
-                    ticktext=[f'{h:02d}:00' for h in range(24)]
-                ),
-                hovermode='x unified'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        elif data_type == "Air Quality":
-            # Select air quality variable
-            air_var = st.selectbox(
-                "Select Air Quality Variable",
-                options=filtered_air_quality.select_dtypes(include=[np.number]).columns.tolist(),
-                index=0
-            )
-            
-            # Extract hour from datetime index
-            filtered_air_quality['hour'] = filtered_air_quality.index.hour
-            
-            # Group by hour and calculate statistics
-            hourly_stats = filtered_air_quality.groupby('hour')[air_var].agg(['mean', 'min', 'max', 'std'])
-            
-            # Create hourly pattern plot
-            fig = go.Figure()
-            
-            # Add mean line
-            fig.add_trace(go.Scatter(
-                x=hourly_stats.index,
-                y=hourly_stats['mean'],
-                mode='lines+markers',
-                name='Mean',
-                line=dict(color='blue', width=2)
-            ))
-            
-            # Add min and max range
-            fig.add_trace(go.Scatter(
-                x=hourly_stats.index,
-                y=hourly_stats['max'],
-                mode='lines',
-                name='Max',
-                line=dict(color='red', width=1, dash='dash')
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=hourly_stats.index,
-                y=hourly_stats['min'],
-                mode='lines',
-                name='Min',
-                line=dict(color='green', width=1, dash='dash'),
-                fill='tonexty',
-                fillcolor='rgba(0, 0, 255, 0.1)'
-            ))
-            
-            # Update layout
-            fig.update_layout(
-                title=f'Daily Pattern of {air_var}',
-                xaxis_title='Hour of Day',
-                yaxis_title=air_var,
-                xaxis=dict(
-                    tickmode='array',
-                    tickvals=list(range(24)),
-                    ticktext=[f'{h:02d}:00' for h in range(24)]
-                ),
-                hovermode='x unified'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-    
-    elif viz_type == "Statistical Summary":
-        # Select data type
-        data_type = st.selectbox("Select Data Type for Summary", ["Weather", "Air Quality"])
-        
-        if data_type == "Weather":
-            # Display statistical summary of weather data
-            st.subheader("Weather Data Statistical Summary")
-            
-            # Select only numeric columns
-            numeric_weather = filtered_weather.select_dtypes(include=[np.number])
-            
-            # Calculate statistics
-            stats_df = numeric_weather.describe().T
-            
-            # Add additional statistics
-            stats_df['range'] = stats_df['max'] - stats_df['min']
-            stats_df['cv'] = stats_df['std'] / stats_df['mean'] * 100  # Coefficient of variation
-            
-            # Format the table
-            formatted_stats = stats_df.style.format({
-                'mean': '{:.2f}',
-                'std': '{:.2f}',
-                'min': '{:.2f}',
-                '25%': '{:.2f}',
-                '50%': '{:.2f}',
-                '75%': '{:.2f}',
-                'max': '{:.2f}',
-                'range': '{:.2f}',
-                'cv': '{:.2f}%'
-            })
-            
-            st.dataframe(formatted_stats, use_container_width=True)
-            
-            # Display distribution plots
-            st.subheader("Distribution Plots")
-            
-            # Select variable for distribution plot
-            dist_var = st.selectbox(
-                "Select Variable for Distribution",
-                options=numeric_weather.columns.tolist(),
-                index=0
-            )
-            
-            # Create histogram with KDE
-            fig = px.histogram(
-                numeric_weather,
-                x=dist_var,
-                nbins=30,
-                marginal="box",
-                title=f'Distribution of {dist_var}'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        elif data_type == "Air Quality":
-            # Display statistical summary of air quality data
-            st.subheader("Air Quality Data Statistical Summary")
-            
-            # Select only numeric columns
-            numeric_air = filtered_air_quality.select_dtypes(include=[np.number])
-            
-            # Calculate statistics
-            stats_df = numeric_air.describe().T
-            
-            # Add additional statistics
-            stats_df['range'] = stats_df['max'] - stats_df['min']
-            stats_df['cv'] = stats_df['std'] / stats_df['mean'] * 100  # Coefficient of variation
-            
-            # Format the table
-            formatted_stats = stats_df.style.format({
-                'mean': '{:.2f}',
-                'std': '{:.2f}',
-                'min': '{:.2f}',
-                '25%': '{:.2f}',
-                '50%': '{:.2f}',
-                '75%': '{:.2f}',
-                'max': '{:.2f}',
-                'range': '{:.2f}',
-                'cv': '{:.2f}%'
-            })
-            
-            st.dataframe(formatted_stats, use_container_width=True)
-            
-            # Display distribution plots
-            st.subheader("Distribution Plots")
-            
-            # Select variable for distribution plot
-            dist_var = st.selectbox(
-                "Select Variable for Distribution",
-                options=numeric_air.columns.tolist(),
-                index=0
-            )
-            
-            # Create histogram with KDE
-            fig = px.histogram(
-                numeric_air,
-                x=dist_var,
-                nbins=30,
-                marginal="box",
-                title=f'Distribution of {dist_var}'
-            )
-            
+            # Show 90-day history (last 7 days for readability)
+            if wx_hist_90 is not None and "temperature" in wx_hist_90.columns:
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=7)
+                hist7  = wx_hist_90.loc[wx_hist_90.index >= cutoff]
+                hist_y = hist7["temperature"].apply(celsius_to_fahrenheit) if use_f else hist7["temperature"]
+                fig.add_trace(go.Scatter(x=hist7.index, y=hist_y, name="90-day History (last 7d)",
+                                         line=dict(color="#00d4ff", width=1.5)))
+            pred_y = temp_pred_df["predicted"].apply(celsius_to_fahrenheit) if use_f else temp_pred_df["predicted"]
+            up_y   = temp_pred_df["upper"].apply(celsius_to_fahrenheit)     if use_f else temp_pred_df["upper"]
+            lo_y   = temp_pred_df["lower"].apply(celsius_to_fahrenheit)     if use_f else temp_pred_df["lower"]
+            fig.add_trace(go.Scatter(x=temp_pred_df.index, y=pred_y, name="AI Predicted",
+                                     line=dict(color="#f59e0b", dash="dash", width=2.5)))
+            fig.add_trace(go.Scatter(x=temp_pred_df.index, y=up_y, line=dict(width=0), showlegend=False))
+            fig.add_trace(go.Scatter(x=temp_pred_df.index, y=lo_y, fill="tonexty",
+                                     fillcolor="rgba(245,158,11,0.10)", line=dict(width=0),
+                                     name="Uncertainty Band"))
+            fig.update_layout(**PLOTLY_THEME, title=f"AI Temperature Forecast — Next {forecast_hrs}h",
+                              yaxis_title=f"Temperature ({temp_unit})", hovermode="x unified", height=400)
             st.plotly_chart(fig, use_container_width=True)
 
+<<<<<<< Updated upstream
 # Footer
 st.markdown("---")
 st.markdown("### AI Environment Monitoring System")
 st.markdown("Developed for environmental monitoring and prediction using AI techniques.")
 st.markdown("© 2025 AI Environment Monitoring System")
+=======
+            pc1, pc2, pc3, pc4 = st.columns(4)
+            pc1.metric("Current",       f"{to_disp(weather_data['temperature'])}{temp_unit}")
+            pc2.metric("Predicted High (24h)", f"{to_disp(temp_pred_df['predicted'][:24].max())}{temp_unit}")
+            pc3.metric("Predicted Low (24h)",  f"{to_disp(temp_pred_df['predicted'][:24].min())}{temp_unit}")
+            m = ml_models.get("metrics", {}).get("temperature", {})
+            pc4.metric("Model MAE", f"{m.get('mae','—')}{temp_unit}", f"R² {m.get('r2','—')}")
+
+        st.divider()
+
+        # AQI AI prediction
+        aqi_src = ml_predictions.get("aqi_source", "")
+        if aqi_pred_df is not None:
+            st.markdown(f"#### 🌫 AI AQI Forecast — *{aqi_src}*")
+            fig_aqi = go.Figure()
+            if aq_hist_90 is not None and "aqi" in aq_hist_90.columns:
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=7)
+                aq7 = aq_hist_90.loc[aq_hist_90.index >= cutoff]
+                fig_aqi.add_trace(go.Scatter(x=aq7.index, y=aq7["aqi"],
+                                             name="90-day History (last 7d)",
+                                             line=dict(color="#10b981", width=1.5)))
+            fig_aqi.add_trace(go.Scatter(x=aqi_pred_df.index, y=aqi_pred_df["predicted"],
+                                         name="AI Predicted AQI",
+                                         line=dict(color="#f59e0b", dash="dash", width=2.5)))
+            fig_aqi.add_trace(go.Scatter(x=aqi_pred_df.index, y=aqi_pred_df["upper"],
+                                         line=dict(width=0), showlegend=False))
+            fig_aqi.add_trace(go.Scatter(x=aqi_pred_df.index, y=aqi_pred_df["lower"],
+                                         fill="tonexty", fillcolor="rgba(245,158,11,0.10)",
+                                         line=dict(width=0), name="Uncertainty Band"))
+            fig_aqi.add_hline(y=100, line_dash="dash", line_color="#ef4444",
+                              annotation_text="Unhealthy threshold (100)")
+            fig_aqi.add_hline(y=50,  line_dash="dot",  line_color="#10b981",
+                              annotation_text="Good (50)")
+            fig_aqi.update_layout(**PLOTLY_THEME, title=f"AI AQI Forecast — Next {forecast_hrs}h",
+                                  yaxis_title="AQI", hovermode="x unified", height=360)
+            st.plotly_chart(fig_aqi, use_container_width=True)
+
+            ac1, ac2, ac3, ac4 = st.columns(4)
+            ac1.metric("Current AQI",   str(air_quality_data.get("aqi", "—")))
+            ac2.metric("Predicted Peak (24h)", f"{int(aqi_pred_df['predicted'][:24].max())}")
+            ac3.metric("Predicted Low (24h)",  f"{int(aqi_pred_df['predicted'][:24].min())}")
+            m2 = ml_models.get("metrics", {}).get("aqi", {})
+            ac4.metric("Model MAE", f"{m2.get('mae','—')}", f"R² {m2.get('r2','—')}")
+
+        st.divider()
+
+        # Risk gauges
+        st.markdown("#### ⚠️ Real-Time Environmental Risk Assessment")
+        gcols = st.columns(4)
+        for col, (name, score) in zip(gcols, risk_scores.items()):
+            with col:
+                lvl = "🔴 HIGH" if score >= 0.7 else ("🟡 MEDIUM" if score >= 0.4 else "🟢 LOW")
+                st.plotly_chart(risk_gauge(name, score), use_container_width=True)
+                st.markdown(f"<p style='text-align:center;font-size:.8rem;color:#94a3b8'>{lvl} · {score*100:.0f}%</p>",
+                            unsafe_allow_html=True)
+
+        risk_df = pd.DataFrame([
+            {"Risk": k, "Score": f"{v*100:.0f}%",
+             "Level": "🔴 High" if v >= 0.7 else ("🟡 Medium" if v >= 0.4 else "🟢 Low"),
+             "Driver": _risk_driver(k, weather_data, air_quality_data)}
+            for k, v in risk_scores.items()
+        ])
+        st.dataframe(risk_df, use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        # Dynamic alerts
+        st.markdown(f"#### 🚨 Live Alerts — updated {datetime.now().strftime('%H:%M:%S')}")
+        for a in dynamic_alerts:
+            if a["level"] == "danger":
+                st.error(f"**{a['type']}** — {a['msg']}  `{a['ts']}`")
+            elif a["level"] == "warning":
+                st.warning(f"**{a['type']}** — {a['msg']}  `{a['ts']}`")
+            else:
+                st.success(f"**{a['type']}** — {a['msg']}")
+
+        # Alert history
+        if st.session_state.alert_history:
+            with st.expander(f"📋 Alert History ({len(st.session_state.alert_history)} events)"):
+                hist_df = pd.DataFrame(st.session_state.alert_history)
+                hist_df["_ts"] = hist_df["_ts"].astype(str)
+                st.dataframe(hist_df[["_ts","level","type","msg"]].rename(
+                    columns={"_ts":"Time","level":"Level","type":"Alert","msg":"Message"}),
+                    use_container_width=True, hide_index=True)
+    else:
+        st.error("Live data unavailable for predictions.")
+
+# ── TAB 3: Analysis ───────────────────────────────────────────────────────────
+with tabs[3]:
+    section_header("Historical Data Analysis")
+
+    src = st.radio("Data source", ["90-Day Real History", "Live Session History", "Sample Dataset"], horizontal=True)
+    if src == "90-Day Real History":
+        fw = wx_hist_90 if wx_hist_90 is not None else pd.DataFrame()
+        fa = aq_hist_90 if aq_hist_90 is not None else pd.DataFrame()
+        rows_w = len(fw); rows_a = len(fa)
+        st.caption(f"📊 Using fetched historical data: **{rows_w}** weather rows · **{rows_a}** AQ rows spanning ~90 days")
+    elif src == "Live Session History" and w_hist is not None:
+        fw = w_hist; fa = aq_hist if aq_hist is not None else pd.DataFrame()
+    else:
+        fw = load_sample_data("weather"); fa = load_sample_data("air_quality")
+
+    viz = st.selectbox("Visualization", ["Time Series", "Correlation Heatmap", "Daily Patterns", "Statistical Summary"])
+
+    if not fw.empty:
+        if viz == "Time Series":
+            dtype = st.selectbox("Dataset", ["Weather", "Air Quality"])
+            df    = fw if dtype == "Weather" else fa
+            if not df.empty:
+                cols_ = st.multiselect("Variables", df.select_dtypes("number").columns.tolist(),
+                                       default=df.select_dtypes("number").columns[:3].tolist())
+                if cols_:
+                    fig = px.line(df, x=df.index, y=cols_, title=f"{dtype} Time Series",
+                                  color_discrete_sequence=px.colors.qualitative.Set2)
+                    fig.update_layout(**PLOTLY_THEME, hovermode="x unified")
+                    st.plotly_chart(fig, use_container_width=True)
+
+        elif viz == "Correlation Heatmap":
+            dtype = st.selectbox("Dataset", ["Weather", "Air Quality"])
+            df    = fw if dtype == "Weather" else fa
+            if not df.empty:
+                corr = df.select_dtypes("number").corr()
+                fig  = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r",
+                                 title="Correlation Matrix")
+                fig.update_layout(**PLOTLY_THEME)
+                st.plotly_chart(fig, use_container_width=True)
+
+        elif viz == "Daily Patterns":
+            dtype = st.selectbox("Dataset", ["Weather", "Air Quality"])
+            df    = fw if dtype == "Weather" else fa
+            if not df.empty and len(df) >= 3:
+                var   = st.selectbox("Variable", df.select_dtypes("number").columns.tolist())
+                df    = df.copy(); df["hour"] = df.index.hour
+                stats = df.groupby("hour")[var].agg(["mean","min","max"])
+                fig   = go.Figure()
+                fig.add_trace(go.Scatter(x=stats.index, y=stats["mean"], name="Mean",
+                                         line=dict(color="#00d4ff", width=2)))
+                fig.add_trace(go.Scatter(x=stats.index, y=stats["max"], name="Max",
+                                         line=dict(color="#ef4444", dash="dash")))
+                fig.add_trace(go.Scatter(x=stats.index, y=stats["min"], name="Min",
+                                         fill="tonexty", fillcolor="rgba(0,212,255,0.07)",
+                                         line=dict(color="#10b981", dash="dash")))
+                fig.update_layout(**PLOTLY_THEME, title=f"Daily Pattern — {var}",
+                                  xaxis_title="Hour", yaxis_title=var)
+                st.plotly_chart(fig, use_container_width=True)
+
+        elif viz == "Statistical Summary":
+            dtype = st.selectbox("Dataset", ["Weather", "Air Quality"])
+            df    = (fw if dtype == "Weather" else fa).select_dtypes("number")
+            if not df.empty:
+                stats = df.describe().T
+                stats["range"] = stats["max"] - stats["min"]
+                stats["cv%"]   = (stats["std"] / stats["mean"].abs() * 100).round(1)
+                st.dataframe(stats.style.format("{:.2f}"), use_container_width=True)
+    else:
+        st.info("No data yet. Collect a few readings first.")
+
+# ── Footer ─────────────────────────────────────────────────────────────────────
+st.markdown(
+    "<div class='footer'>EcoSense AI v3 · Real-Time Environmental Intelligence · "
+    "© 2025 Gourav Singh Thakur</div>",
+    unsafe_allow_html=True,
+)

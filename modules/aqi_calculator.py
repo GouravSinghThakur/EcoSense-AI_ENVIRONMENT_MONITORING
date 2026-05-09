@@ -1,141 +1,141 @@
-import numpy as np
+"""
+aqi_calculator.py
+─────────────────
+EPA AQI calculation from OpenWeatherMap component concentrations.
+
+Unit notes (OWM API units → EPA breakpoint units):
+  PM2.5  : µg/m³   → µg/m³   (no conversion needed)
+  PM10   : µg/m³   → µg/m³   (no conversion needed)
+  O3     : µg/m³   → ppb      divide by 1.9957  (MW 48 g/mol, 25°C)
+  CO     : µg/m³   → ppm      divide by 1145.0  (MW 28 g/mol, 25°C)
+  SO2    : µg/m³   → ppb      divide by 2.6178  (MW 64 g/mol, 25°C)
+  NO2    : µg/m³   → ppb      divide by 1.8816  (MW 46 g/mol, 25°C)
+"""
 import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# AQI Breakpoint tables as per EPA standards
+# ── EPA AQI Breakpoints ───────────────────────────────────────────────────────
+# All concentrations in the units EPA uses (see header above).
+
 BREAKPOINTS = {
-    'pm2_5': [
-        {'min': 0.0, 'max': 12.0, 'aqi_min': 0, 'aqi_max': 50},
-        {'min': 12.1, 'max': 35.4, 'aqi_min': 51, 'aqi_max': 100},
-        {'min': 35.5, 'max': 55.4, 'aqi_min': 101, 'aqi_max': 150},
-        {'min': 55.5, 'max': 150.4, 'aqi_min': 151, 'aqi_max': 200},
-        {'min': 150.5, 'max': 250.4, 'aqi_min': 201, 'aqi_max': 300},
-        {'min': 250.5, 'max': 500.4, 'aqi_min': 301, 'aqi_max': 500}
+    "pm2_5": [          # µg/m³
+        (0.0,  12.0,   0,  50),
+        (12.1, 35.4,  51, 100),
+        (35.5, 55.4, 101, 150),
+        (55.5,150.4, 151, 200),
+        (150.5,250.4,201, 300),
+        (250.5,500.4,301, 500),
     ],
-    'pm10': [
-        {'min': 0, 'max': 54, 'aqi_min': 0, 'aqi_max': 50},
-        {'min': 55, 'max': 154, 'aqi_min': 51, 'aqi_max': 100},
-        {'min': 155, 'max': 254, 'aqi_min': 101, 'aqi_max': 150},
-        {'min': 255, 'max': 354, 'aqi_min': 151, 'aqi_max': 200},
-        {'min': 355, 'max': 424, 'aqi_min': 201, 'aqi_max': 300},
-        {'min': 425, 'max': 604, 'aqi_min': 301, 'aqi_max': 500}
+    "pm10": [           # µg/m³
+        (0,   54,   0,  50),
+        (55,  154,  51, 100),
+        (155, 254, 101, 150),
+        (255, 354, 151, 200),
+        (355, 424, 201, 300),
+        (425, 604, 301, 500),
     ],
-    'o3': [
-        {'min': 0, 'max': 54, 'aqi_min': 0, 'aqi_max': 50},
-        {'min': 55, 'max': 70, 'aqi_min': 51, 'aqi_max': 100},
-        {'min': 71, 'max': 85, 'aqi_min': 101, 'aqi_max': 150},
-        {'min': 86, 'max': 105, 'aqi_min': 151, 'aqi_max': 200},
-        {'min': 106, 'max': 200, 'aqi_min': 201, 'aqi_max': 300}
+    "o3": [             # ppb  (convert from µg/m³ before lookup)
+        (0,   54,   0,  50),
+        (55,  70,  51, 100),
+        (71,  85, 101, 150),
+        (86, 105, 151, 200),
+        (106,200, 201, 300),
     ],
-    'co': [
-        {'min': 0.0, 'max': 4.4, 'aqi_min': 0, 'aqi_max': 50},
-        {'min': 4.5, 'max': 9.4, 'aqi_min': 51, 'aqi_max': 100},
-        {'min': 9.5, 'max': 12.4, 'aqi_min': 101, 'aqi_max': 150},
-        {'min': 12.5, 'max': 15.4, 'aqi_min': 151, 'aqi_max': 200},
-        {'min': 15.5, 'max': 30.4, 'aqi_min': 201, 'aqi_max': 300},
-        {'min': 30.5, 'max': 50.4, 'aqi_min': 301, 'aqi_max': 500}
+    "co": [             # ppm  (convert from µg/m³ before lookup)
+        (0.0,  4.4,   0,  50),
+        (4.5,  9.4,  51, 100),
+        (9.5, 12.4, 101, 150),
+        (12.5,15.4, 151, 200),
+        (15.5,30.4, 201, 300),
+        (30.5,50.4, 301, 500),
     ],
-    'so2': [
-        {'min': 0, 'max': 35, 'aqi_min': 0, 'aqi_max': 50},
-        {'min': 36, 'max': 75, 'aqi_min': 51, 'aqi_max': 100},
-        {'min': 76, 'max': 185, 'aqi_min': 101, 'aqi_max': 150},
-        {'min': 186, 'max': 304, 'aqi_min': 151, 'aqi_max': 200},
-        {'min': 305, 'max': 604, 'aqi_min': 201, 'aqi_max': 300},
-        {'min': 605, 'max': 1004, 'aqi_min': 301, 'aqi_max': 500}
+    "so2": [            # ppb  (convert from µg/m³ before lookup)
+        (0,   35,   0,  50),
+        (36,  75,  51, 100),
+        (76, 185, 101, 150),
+        (186,304, 151, 200),
+        (305,604, 201, 300),
+        (605,1004,301, 500),
     ],
-    'no2': [
-        {'min': 0, 'max': 53, 'aqi_min': 0, 'aqi_max': 50},
-        {'min': 54, 'max': 100, 'aqi_min': 51, 'aqi_max': 100},
-        {'min': 101, 'max': 360, 'aqi_min': 101, 'aqi_max': 150},
-        {'min': 361, 'max': 649, 'aqi_min': 151, 'aqi_max': 200},
-        {'min': 650, 'max': 1249, 'aqi_min': 201, 'aqi_max': 300},
-        {'min': 1250, 'max': 2049, 'aqi_min': 301, 'aqi_max': 500}
-    ]
+    "no2": [            # ppb  (convert from µg/m³ before lookup)
+        (0,   53,   0,  50),
+        (54,  100,  51, 100),
+        (101, 360, 101, 150),
+        (361, 649, 151, 200),
+        (650,1249, 201, 300),
+        (1250,2049,301, 500),
+    ],
 }
 
-def calculate_pollutant_aqi(concentration, pollutant):
-    """
-    Calculate AQI for a specific pollutant using EPA's formula.
-    
-    Args:
-        concentration (float): Pollutant concentration
-        pollutant (str): Pollutant type ('pm2_5', 'pm10', 'o3', 'co', 'so2', 'no2')
-        
-    Returns:
-        int: Calculated AQI value for the pollutant
-    """
-    try:
-        if pollutant not in BREAKPOINTS:
-            logger.error(f"Unknown pollutant type: {pollutant}")
-            return None
-            
-        # Handle negative or zero concentrations
-        if concentration is None or concentration < 0:
-            return 0
-            
-        # Find the appropriate breakpoint range
-        breakpoint_table = BREAKPOINTS[pollutant]
-        selected_range = None
-        
-        for bpt in breakpoint_table:
-            if bpt['min'] <= concentration <= bpt['max']:
-                selected_range = bpt
-                break
-        
-        # If concentration exceeds all ranges, handle appropriately
-        if selected_range is None:
-            if concentration > breakpoint_table[-1]['max']:
-               
-                return 500
-            return 0
-        
-        # Calculate AQI using EPA's formula
-        aqi = ((
-            selected_range['aqi_max'] - selected_range['aqi_min']
-        ) * (
-            concentration - selected_range['min']
-        ) / (
-            selected_range['max'] - selected_range['min']
-        )) + selected_range['aqi_min']
-        
-        return int(round(aqi))
-        
-    except Exception as e:
-        logger.error(f"Error calculating AQI for {pollutant}: {e}")
+# Conversion factors: OWM µg/m³ → EPA unit
+_CONV = {
+    "pm2_5": 1.0,        # already µg/m³
+    "pm10":  1.0,        # already µg/m³
+    "o3":    1 / 1.9957, # µg/m³ → ppb
+    "co":    1 / 1145.0, # µg/m³ → ppm
+    "so2":   1 / 2.6178, # µg/m³ → ppb
+    "no2":   1 / 1.8816, # µg/m³ → ppb
+}
+
+
+def _pollutant_aqi(concentration: float, pollutant: str) -> int | None:
+    """Calculate sub-index AQI for one pollutant (EPA linear interpolation)."""
+    if concentration is None or concentration < 0:
+        return 0
+
+    # Convert to EPA units
+    conc = concentration * _CONV.get(pollutant, 1.0)
+
+    table = BREAKPOINTS.get(pollutant)
+    if not table:
         return None
 
-def calculate_aqi(pollutants):
+    for (c_lo, c_hi, i_lo, i_hi) in table:
+        if c_lo <= conc <= c_hi:
+            aqi = (i_hi - i_lo) / (c_hi - c_lo) * (conc - c_lo) + i_lo
+            return int(round(aqi))
+
+    # Above highest breakpoint
+    if conc > table[-1][1]:
+        return 500
+    return 0
+
+
+def calculate_aqi(pollutants: dict) -> dict | None:
+    """
+    Calculate overall EPA AQI from a dict of OWM concentrations.
+
+    Args:
+        pollutants: dict with keys pm2_5, pm10, o3, co, so2, no2
+                    values in µg/m³  (as returned by process_air_quality_data)
+
+    Returns:
+        {'aqi': int, 'dominant_pollutant': str, 'pollutant_aqi': dict}
+        or None on failure.
+    """
     try:
-        aqi_values = {}
-        max_aqi = 0
-        dominant_pollutant = None
-        
-        # Calculate AQI for each pollutant
-        for pollutant, concentration in pollutants.items():
-            if pollutant in BREAKPOINTS:
-                aqi = calculate_pollutant_aqi(concentration, pollutant)
-                if aqi is not None:
-                    aqi_values[pollutant] = aqi
-                    if aqi > max_aqi:
-                        max_aqi = aqi
-                        dominant_pollutant = pollutant
-        
-        if not aqi_values:
-            logger.warning("No valid pollutant data for AQI calculation")
+        sub_indices: dict[str, int] = {}
+        for pollutant, conc in pollutants.items():
+            if pollutant not in BREAKPOINTS:
+                continue
+            idx = _pollutant_aqi(conc, pollutant)
+            if idx is not None:
+                sub_indices[pollutant] = idx
+
+        if not sub_indices:
+            logger.warning("No valid pollutant concentrations for AQI.")
             return None
-        
-        # Prepare result dictionary
-        result = {
-            'aqi': max_aqi,
-            'dominant_pollutant': dominant_pollutant,
-            'pollutant_aqi': aqi_values
+
+        dominant = max(sub_indices, key=sub_indices.get)
+        overall  = sub_indices[dominant]
+
+        return {
+            "aqi":               overall,
+            "dominant_pollutant": dominant,
+            "pollutant_aqi":     sub_indices,
         }
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error calculating overall AQI: {e}")
+
+    except Exception as exc:
+        logger.error("AQI calculation error: %s", exc)
         return None

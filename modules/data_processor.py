@@ -83,18 +83,16 @@ def process_air_quality_data(air_quality_data):
         from .aqi_calculator import calculate_aqi
         
         components = air_quality_data['list'][0]['components']
-        
-        # Convert CO from mg/m³ to μg/m³ for consistency
-        co_concentration = components['co'] * 1000
-        
-        # Prepare pollutant concentrations for AQI calculation
+
+        # All OWM components are in µg/m³ — pass directly to calculate_aqi
+        # (aqi_calculator handles unit conversion to EPA ppm/ppb internally)
         pollutants = {
             'pm2_5': components['pm2_5'],
-            'pm10': components['pm10'],
-            'o3': components['o3'],
-            'co': co_concentration,
-            'so2': components['so2'],
-            'no2': components['no2']
+            'pm10':  components['pm10'],
+            'o3':    components['o3'],
+            'co':    components['co'],
+            'so2':   components['so2'],
+            'no2':   components['no2'],
         }
         
         # Calculate AQI using EPA formula

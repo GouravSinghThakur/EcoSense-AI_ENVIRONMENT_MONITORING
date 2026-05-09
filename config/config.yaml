@@ -4,15 +4,19 @@ api:
   air_quality_endpoint: "https://api.openweathermap.org/data/2.5/air_pollution"
   forecast_endpoint: "https://api.openweathermap.org/data/2.5/forecast"
   units: "metric"
+  timeout_seconds: 10
+  cache_ttl_seconds: 600  # 10-minute Streamlit cache
 
 # UI Configuration
 ui:
   default_location:
-    city: "New York"
-    lat: 40.7128
-    lon: -74.0060
-  refresh_interval: 3600  
-  theme: "light"  
+    city: "New Delhi"
+    lat: 28.6139
+    lon: 77.2090
+  refresh_interval: 600
+  theme: "dark"
+  accent_color: "#00D4FF"
+  brand_name: "EcoSense AI"
 # Data Processing
 data_processing:
   weather:
@@ -54,7 +58,13 @@ thresholds:
 
 # Logging
 logging:
-  level: "INFO"  
+  level: "INFO"
   file: "logs/app.log"
   max_size: 10485760  # 10 MB
   backup_count: 5
+
+# App metadata
+app:
+  version: "2.0.0"
+  author: "Gourav Singh Thakur"
+  contact: "GitHub: GouravSinghThakur"
